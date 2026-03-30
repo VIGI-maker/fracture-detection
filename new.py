@@ -3,11 +3,12 @@ from PIL import Image, ImageDraw
 import torch
 import torchvision
 from torchvision import transforms as T
+from streamlit_drawable_canvas import st_canvas
 
 st.set_page_config(page_title="Détection de fracture", layout="wide")
-st.title("Détection de fracture (IA + Annotation)")
+st.title("Détection de fracture (IA + Annotation interactive)")
 
-# Charger modèle FasterRCNN pré-entraîné
+# Charger modèle FasterRCNN
 @st.cache_resource(show_spinner=False)
 def load_model():
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
@@ -16,25 +17,22 @@ def load_model():
 
 model = load_model()
 
-# Transformation image
 def transform_image(image):
     transform = T.Compose([T.ToTensor()])
     return transform(image)
 
-# Upload image
 uploaded_file = st.file_uploader("Choisissez une radiographie", type=["png", "jpg", "jpeg"])
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Radiographie chargée", use_column_width=True)
 
-    # Détection
+    # Détection automatique
     img_tensor = transform_image(image)
     with torch.no_grad():
         predictions = model([img_tensor])[0]
 
     draw = ImageDraw.Draw(image)
     detected = False
-    threshold = 0.7  # Seuil confiance
+    threshold = 0.7
     for box, score in zip(predictions['boxes'], predictions['scores']):
         if score >= threshold:
             box = [round(i.item()) for i in box]
@@ -44,16 +42,23 @@ if uploaded_file:
     if detected:
         st.subheader("Fracture détectée automatiquement (rectangle rouge)")
     else:
-        st.warning("Aucune fracture détectée automatiquement. Vous pouvez annoter manuellement ci-dessous.")
+        st.warning("Aucune fracture détectée automatiquement. Vous pouvez annoter manuellement.")
 
-    st.image(image, use_column_width=True)
+    # Affiche l'image sur le canvas pour annotation
+    st.subheader("Annotation manuelle (dessinez directement sur l'image)")
+    canvas_result = st_canvas(
+        fill_color="rgba(0,0,255,0.3)",  # couleur bleu transparente
+        stroke_width=3,
+        stroke_color="blue",
+        background_image=image,
+        update_streamlit=True,
+        height=image.height,
+        width=image.width,
+        drawing_mode="rect",
+        key="canvas"
+    )
 
-    # Annotation manuelle
-    st.subheader("Annotation manuelle (rectangle bleu)")
-    x1 = st.number_input("x1", value=0)
-    y1 = st.number_input("y1", value=0)
-    x2 = st.number_input("x2", value=image.width)
-    y2 = st.number_input("y2", value=image.height)
-    if st.button("Ajouter annotation"):
-        draw.rectangle([x1, y1, x2, y2], outline="blue", width=3)
-        st.image(image, caption="Image annotée manuellement (rectangle bleu)", use_column_width=True)
+    # Afficher l'image annotée
+    if canvas_result.image_data is not None:
+        annotated_image = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGB')
+        st.image(annotated_image, caption="Image annotée", use_column_width=True)
